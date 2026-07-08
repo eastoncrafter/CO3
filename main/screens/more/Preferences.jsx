@@ -607,6 +607,12 @@ const PreferencesScreen = ({
                 isActive={theme === 'black'}
                 onPress={() => handleThemeChange('black')}
               />
+              <ThemeButton
+                themeKey="kindle"
+                label="Kindle"
+                isActive={theme === 'kindle'}
+                onPress={() => handleThemeChange('kindle')}
+              />
             </View>
           </View>
 

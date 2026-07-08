@@ -44,7 +44,7 @@ import {
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 import SystemNavigationBar from 'react-native-system-navigation-bar';
-import { setup, setupNotificationListeners } from './web/updater';
+import { cancel, setup, setupNotificationListeners } from './web/updater';
 import { getJsonSettings, saveJsonSettings } from './storage/jsonSettings';
 import { UpdateDAO } from './storage/dao/UpdateDAO';
 import notifee from 'react-native-notify-kit';
@@ -59,6 +59,7 @@ import MainOnboardScreen from './onboard/MainOnboardScreen';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { runOnJS, useSharedValue } from 'react-native-reanimated';
 import Spinner from './components/History/Spinner';
+import { isLikelyKindleDevice } from './utils/platform';
 
 const AppWrapper = () => {
   const wrapperStyle = Platform.OS === 'web'
@@ -293,35 +294,36 @@ const App = () => {
 
   useEffect(() => {
     initializeApp();
+    let unsubscribeForeground = () => { };
 
-    function unsubscribeForeground() {
-      setupNotificationListeners(
+    if (!isLikelyKindleDevice) {
+      unsubscribeForeground = setupNotificationListeners(
         setActiveScreen,
         setScreens,
         (workId, chapterId) => handleNotificationOpen(workId, chapterId)
-      )
-    }
+      );
 
-    const checkInitialNotification = async () => {
-      const initialNotification = await notifee.getInitialNotification();
+      const checkInitialNotification = async () => {
+        const initialNotification = await notifee.getInitialNotification();
 
-      if (initialNotification) {
-        if (initialNotification.notification.id === 'updateComplete') {
-          setActiveScreen('update');
-        } else if (initialNotification.notification.data?.action === 'OPEN_WORK') {
-          const { workId, chapterId } = initialNotification.notification.data;
-          setTimeout(() => handleNotificationOpen(workId, chapterId), 1000);
+        if (initialNotification) {
+          if (initialNotification.notification.id === 'updateComplete') {
+            setActiveScreen('update');
+          } else if (initialNotification.notification.data?.action === 'OPEN_WORK') {
+            const { workId, chapterId } = initialNotification.notification.data;
+            setTimeout(() => handleNotificationOpen(workId, chapterId), 1000);
+          }
         }
-      }
-    };
+      };
 
-    checkInitialNotification();
+      checkInitialNotification();
+    }
 
     return () => {
       if (database) {
         database.close();
       }
-      unsubscribeForeground();
+      unsubscribeForeground?.();
     };
   }, []);
 
@@ -432,9 +434,13 @@ const App = () => {
   const initializeApp = async () => {
     const jsonSettings = await getJsonSettings();
     setJsonSettings(jsonSettings)
-    setup(jsonSettings.time)
+    if (isLikelyKindleDevice) {
+      cancel();
+    } else {
+      setup(jsonSettings.time)
+    }
 
-    if (Platform.OS === 'android') {
+    if (Platform.OS === 'android' && !isLikelyKindleDevice) {
       try {
         const granted = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS
@@ -466,7 +472,15 @@ const App = () => {
       setChapterDAO(newChapterDAO);
 
       const loadedSettings = await newSettingsDAO.getSettings();
-      setTheme(loadedSettings.theme);
+      const selectedTheme =
+        isLikelyKindleDevice && (!loadedSettings.theme || loadedSettings.theme === 'light')
+          ? 'kindle'
+          : loadedSettings.theme;
+      if (selectedTheme !== loadedSettings.theme) {
+        loadedSettings.theme = selectedTheme;
+        await newSettingsDAO.saveSettings(loadedSettings);
+      }
+      setTheme(selectedTheme);
       setIsIncognitoMode(loadedSettings.isIncognitoMode);
       setViewMode(loadedSettings.viewMode);
 
@@ -487,6 +501,10 @@ const App = () => {
   }, [workDAO]);
 
   useEffect(() => {
+    if (isLikelyKindleDevice) {
+      return;
+    }
+
     const navBarColor = screens.length === 0 ? currentTheme.headerBackground : currentTheme.backgroundColor;
     const isDark = theme === 'dark' || theme === 'black';
 

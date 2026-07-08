@@ -3,6 +3,7 @@ import { popNextDownload, peekNextDownload, getDownloadQueue } from './DownloadQ
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DeviceEventEmitter } from 'react-native';
 import { downloadChapter, isDownloaded } from './Downloader';
+import { isLikelyKindleDevice } from '../utils/platform';
 
 const FAILED_LIST_KEY = 'failedDownloads';
 const CHANNEL_ID = 'download_channel';
@@ -65,11 +66,13 @@ export async function processQueue() {
       return;
     }
 
-    await notifee.createChannel({
-      id: CHANNEL_ID,
-      name: 'Downloads',
-      importance: AndroidImportance.LOW,
-    });
+    if (notificationsEnabled) {
+      await notifee.createChannel({
+        id: CHANNEL_ID,
+        name: 'Downloads',
+        importance: AndroidImportance.LOW,
+      });
+    }
 
     while (true) {
       queue = await getDownloadQueue();
@@ -80,21 +83,23 @@ export async function processQueue() {
       const currentTotal = processed + queue.length;
       if (currentTotal > initialTotal) initialTotal = currentTotal;
 
-      await notifee.displayNotification({
-        id: NOTIFICATION_ID,
-        title: 'Downloading Chapters',
-        body: `Processing item ${processed + 1} of ${initialTotal}`,
-        android: {
-          channelId: CHANNEL_ID,
-          ongoing: true,
-          onlyAlertOnce: true,
-          progress: {
-            max: initialTotal,
-            current: processed,
-            indeterminate: false
+      if (notificationsEnabled) {
+        await notifee.displayNotification({
+          id: NOTIFICATION_ID,
+          title: 'Downloading Chapters',
+          body: `Processing item ${processed + 1} of ${initialTotal}`,
+          android: {
+            channelId: CHANNEL_ID,
+            ongoing: true,
+            onlyAlertOnce: true,
+            progress: {
+              max: initialTotal,
+              current: processed,
+              indeterminate: false
+            },
           },
-        },
-      });
+        });
+      }
 
       try {
         await downloadTask(item);
@@ -114,9 +119,11 @@ export async function processQueue() {
   } finally {
     isProcessing = false;
 
-    await notifee.cancelNotification(NOTIFICATION_ID);
+    if (notificationsEnabled) {
+      await notifee.cancelNotification(NOTIFICATION_ID);
+    }
 
-    if (failedCount > 0 || successCount > 0) {
+    if (notificationsEnabled && (failedCount > 0 || successCount > 0)) {
       await notifee.displayNotification({
         id: 'download_summary', // Different ID so it doesn't get cancelled
         title: failedCount > 0 ? 'Download Finished with Errors' : 'Downloads Complete',
@@ -140,3 +147,4 @@ async function handleDownloadFailure(item, reason) {
     console.warn("Storage Error", e);
   }
 }
+  const notificationsEnabled = !isLikelyKindleDevice;

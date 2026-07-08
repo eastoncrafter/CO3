@@ -50,6 +50,18 @@ You can get IOS dev builds [here](https://github.com/tbvns/CO3/actions/workflows
 > ~~iOS builds are currently untested since none of the contributors have iOS devices. If you’re on iOS, we’d really appreciate any bug reports you can share.
 > It is possible that they don't even launch, we really have no idea.~~ Some user reported the app working, athough we don't know how true that is and what remains to be fixed.
 
+## Jailbroken Kindle support
+CO3 now includes a Kindle Android flavor with reduced platform dependencies and an e-ink friendly theme.
+
+- Build Kindle debug APK:
+  `cd /home/runner/work/CO3/CO3/android && ./gradlew assembleKindleDebug`
+- Build Kindle release APK:
+  `cd /home/runner/work/CO3/CO3/android && ./gradlew assembleKindleRelease`
+- Install the generated APK by sideloading on your jailbroken Kindle.
+
+> [!NOTE]
+> This app still follows the project minimum Android API level (24). Older Kindle firmware versions below that API level are not supported by this React Native baseline.
+
 <p align="center">
   <a href="https://f-droid.org/packages/com.co3/">
     <img src="https://f-droid.org/badge/get-it-on.png" alt="Get CO3 from F-Droid" width="220">
@@ -70,4 +82,3 @@ This program is free software: you can redistribute it and/or modify it under th
 This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License along with this program. If not, see <https://www.gnu.org/licenses/>. 
-

@@ -32,6 +32,18 @@ android {
         versionName "B0.0.14"
     }
 
+    flavorDimensions "device"
+    productFlavors {
+        standard {
+            dimension "device"
+        }
+        kindle {
+            dimension "device"
+            applicationIdSuffix ".kindle"
+            versionNameSuffix "-kindle"
+        }
+    }
+
     splits {
         abi {
             enable enableSplits

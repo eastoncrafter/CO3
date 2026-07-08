@@ -11,10 +11,11 @@ import notifee, {
 } from 'react-native-notify-kit';
 import { getJsonSettings } from '../storage/jsonSettings';
 import { ChapterDAO } from '../storage/dao/ChapterDAO';
+import { isLikelyKindleDevice } from '../utils/platform';
 
 const { LibraryScheduler } = NativeModules;
 
-if (Platform.OS === 'android') {
+if (Platform.OS === 'android' && !isLikelyKindleDevice) {
   AppRegistry.registerHeadlessTask('LibraryUpdate', () => async () => {
     await run();
   });
@@ -77,6 +78,11 @@ const getEmojiStatus = work => {
 };
 
 export const setup = async intervalMinutes => {
+  if (isLikelyKindleDevice) {
+    console.log('[LibraryScheduler] Kindle mode enabled — background updates disabled.');
+    return;
+  }
+
   if (!LibraryScheduler) {
     console.warn(
       '[LibraryScheduler] Native module not found — background updates disabled.',
@@ -126,19 +132,25 @@ export const cancel = () => {
 export const run = async () => {
   const settings = await getJsonSettings();
   const useCompactNotification = settings.compactNotifications;
+  const notificationsEnabled = !isLikelyKindleDevice;
 
   try {
-    const channelId = await notifee.createChannel({
-      id: 'updateWorks',
-      name: 'Library Updates',
-      importance: AndroidImportance.DEFAULT,
-    });
+    let channelId = 'updateWorks';
+    let progressChannelId = 'updateProgress';
 
-    const progressChannelId = await notifee.createChannel({
-      id: 'updateProgress',
-      name: 'Update Progress',
-      importance: AndroidImportance.LOW,
-    });
+    if (notificationsEnabled) {
+      channelId = await notifee.createChannel({
+        id: 'updateWorks',
+        name: 'Library Updates',
+        importance: AndroidImportance.DEFAULT,
+      });
+
+      progressChannelId = await notifee.createChannel({
+        id: 'updateProgress',
+        name: 'Update Progress',
+        importance: AndroidImportance.LOW,
+      });
+    }
 
     const db = await database.open();
     const workDAO = new WorkDAO(db);
@@ -149,17 +161,19 @@ export const run = async () => {
       return work.chapterCount !== work.currentChapter;
     });
 
-    await notifee.displayNotification({
-      id: 'scanning_progress',
-      title: 'Checking for updates...',
-      body: `Scanning ${toUpdate.length} works...`,
-      android: {
-        channelId: progressChannelId,
-        progress: { max: toUpdate.length, current: 0, indeterminate: false },
-        onlyAlertOnce: true,
-        ongoing: true,
-      },
-    });
+    if (notificationsEnabled) {
+      await notifee.displayNotification({
+        id: 'scanning_progress',
+        title: 'Checking for updates...',
+        body: `Scanning ${toUpdate.length} works...`,
+        android: {
+          channelId: progressChannelId,
+          progress: { max: toUpdate.length, current: 0, indeterminate: false },
+          onlyAlertOnce: true,
+          ongoing: true,
+        },
+      });
+    }
 
     const randomDelay = (min, max) =>
       new Promise(resolve =>
@@ -171,17 +185,19 @@ export const run = async () => {
 
     for (let i = 0; i < toUpdate.length; i++) {
       const uwork = toUpdate[i];
-      await notifee.displayNotification({
-        id: 'scanning_progress',
-        title: 'Updating your library...',
-        body: `${Math.floor((i / toUpdate.length) * 100)}% : ${uwork.title}`,
-        android: {
-          channelId: progressChannelId,
-          progress: { max: toUpdate.length, current: i },
-          onlyAlertOnce: true,
-          ongoing: true,
-        },
-      });
+      if (notificationsEnabled) {
+        await notifee.displayNotification({
+          id: 'scanning_progress',
+          title: 'Updating your library...',
+          body: `${Math.floor((i / toUpdate.length) * 100)}% : ${uwork.title}`,
+          android: {
+            channelId: progressChannelId,
+            progress: { max: toUpdate.length, current: i },
+            onlyAlertOnce: true,
+            ongoing: true,
+          },
+        });
+      }
 
       try {
         await randomDelay(500, 1500);
@@ -213,7 +229,7 @@ export const run = async () => {
 
           updatedWorks.push(updatedWork);
 
-          if (!useCompactNotification && newChapterNumbers.length > 0) {
+          if (notificationsEnabled && !useCompactNotification && newChapterNumbers.length > 0) {
             const iconName = getMergedIconName(updatedWork);
             const chaptersStr = newChapterNumbers.join(', ');
             const firstChapterNumber = newChapterNumbers[0];
@@ -245,9 +261,11 @@ export const run = async () => {
       }
     }
 
-    await notifee.cancelNotification('scanning_progress');
+    if (notificationsEnabled) {
+      await notifee.cancelNotification('scanning_progress');
+    }
 
-    if (updatedWorks.length > 0) {
+    if (notificationsEnabled && updatedWorks.length > 0) {
       if (useCompactNotification) {
         await notifee.displayNotification({
           id: 'updateComplete',
@@ -278,7 +296,7 @@ export const run = async () => {
       }
     }
 
-    if (errorWork.length > 0) {
+    if (notificationsEnabled && errorWork.length > 0) {
       await notifee.displayNotification({
         id: 'updateError',
         title: 'Update Issues',
@@ -316,6 +334,10 @@ export const setupNotificationListeners = (
   setScreens,
   openWorkDetails,
 ) => {
+  if (isLikelyKindleDevice) {
+    return () => { };
+  }
+
   const handlePress = async detail => {
     const { notification } = detail;
     const data = notification?.data;
@@ -336,11 +358,16 @@ export const setupNotificationListeners = (
     }
   };
 
-  notifee.onForegroundEvent(({ type, detail }) => {
+  const unsubscribeForeground = notifee.onForegroundEvent(({ type, detail }) => {
     if (type === EventType.PRESS) handlePress(detail);
   });
 
-  notifee.onBackgroundEvent(async ({ type, detail }) => {
+  const unsubscribeBackground = notifee.onBackgroundEvent(async ({ type, detail }) => {
     if (type === EventType.PRESS) handlePress(detail);
   });
+
+  return () => {
+    unsubscribeForeground?.();
+    unsubscribeBackground?.();
+  };
 };
